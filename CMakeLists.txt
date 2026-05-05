@@ -1208,6 +1208,15 @@ if (WITH_LOCALE)
 endif()
 
 set(USED_SOURCES ${ENGINE_SOURCES} ${AUDIO_SOURCES} ${CLI_SOURCES} src/main.cpp)
+list(APPEND USED_SOURCES
+  src/mod_converter.cpp
+  src/mod_converter_common.cpp
+  src/mod_converter_effects.cpp
+  src/mod_converter_single_channel.cpp
+  src/mod_converter_multi_channel.cpp
+  src/mod_converter_multi_channel_samples.cpp
+  src/mod_converter_multi_channel_timing.cpp
+)
 
 if (USE_BACKWARD)
   list(APPEND USED_SOURCES src/backtrace.cpp)

@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <zlib.h>
 #include "pch.h"
 #ifdef HAVE_SDL2
 #include "SDL_events.h"
@@ -26,6 +27,7 @@
 #include "ta-log.h"
 #include "fileutils.h"
 #include "engine/engine.h"
+#include "mod_converter.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -641,6 +643,7 @@ void initParams() {
   params.push_back(TAParam("r","romout",true,pROMOut,"<filename|path>","export ROM file, or path for multi-file export"));
   params.push_back(TAParam("R","romconf",true,pROMConf,"<key>=<value>","set configuration parameter for ROM export"));
   params.push_back(TAParam("t","txtout",true,pTxtOut,"<filename>","export as text file"));
+  params.push_back(TAParam("x","convert",true,pConvert,modConverterTargetsHelp(),"convert loaded module before export/playback"));
   params.push_back(TAParam("L","loglevel",true,pLogLevel,"debug|info|warning|error","set the log level (info by default)"));
   params.push_back(TAParam("v","view",true,pView,"pattern|commands|nothing","set visualization (nothing by default)"));
   params.push_back(TAParam("i","info",false,pInfo,"","get info about a song"));
@@ -685,6 +688,44 @@ void reportError(String what) {
   }
 }
 #endif
+
+static bool saveFurOutput(const String& path) {
+  SafeWriter* w=e.saveFur(true);
+  if (w==NULL) {
+    reportError(_("could not write Furnace module!"));
+    return false;
+  }
+
+  bool success=false;
+  FILE* f=ps_fopen(path.c_str(),"wb");
+  if (f==NULL) {
+    reportError(fmt::sprintf(_("could not open file! (%s)"),strerror(errno)));
+  } else {
+    uLongf compressedSize=compressBound(w->size());
+    std::vector<unsigned char> compressed(compressedSize);
+    int ret=compress2(compressed.data(),&compressedSize,w->getFinalBuf(),w->size(),Z_DEFAULT_COMPRESSION);
+    if (ret!=Z_OK) {
+      reportError(_("compression error"));
+    } else if (fwrite(compressed.data(),1,compressedSize,f)!=compressedSize) {
+      reportError(fmt::sprintf(_("could not write file! (%s)"),strerror(errno)));
+    } else {
+      success=true;
+    }
+    fclose(f);
+  }
+
+  w->finish();
+  delete w;
+  return success;
+}
+
+static bool isFurOutputPath(const String& path) {
+  String lowerCase=path;
+  for (char& i: lowerCase) {
+    if (i>='A' && i<='Z') i+='a'-'A';
+  }
+  return lowerCase.size()>=4 && lowerCase.substr(lowerCase.size()-4)==".fur";
+}
 
 #ifndef _WIN32
 #ifdef HAVE_GUI
@@ -909,7 +950,7 @@ int main(int argc, char** argv) {
 
   const bool outputMode = outName!="" || vgmOutName!="" || cmdOutName!="" || romOutName!="" || txtOutName!="";
 
-  if (fileName.empty() && (benchMode || infoMode || outputMode)) {
+  if (fileName.empty() && (benchMode || infoMode || outputMode || modConverterHasTarget())) {
     logE("provide a file!");
     return 1;
   }
@@ -1010,12 +1051,32 @@ int main(int argc, char** argv) {
       return 1;
     }
   }
+  bool engineInitializedForConvert=false;
+  if (modConverterHasTarget()) {
+    if (!e.init()) {
+      reportError(_("could not initialize engine!"));
+      finishLogFile();
+      return 1;
+    }
+    engineInitializedForConvert=true;
+    if (!convertLoadedModForRequestedTarget()) {
+      e.everythingOK();
+      finishLogFile();
+      return 1;
+    }
+    if (outName!="" && isFurOutputPath(outName)) {
+      bool saved=saveFurOutput(outName);
+      finishLogFile();
+      return saved?0:1;
+    }
+  }
   if (infoMode) {
     e.dumpSongInfo();
     finishLogFile();
     return 0;
   }
 
+  if (!engineInitializedForConvert)
   if (!e.init()) {
     if (consoleMode) {
       reportError(_("could not initialize engine!"));
