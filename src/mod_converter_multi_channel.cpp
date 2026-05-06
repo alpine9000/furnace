@@ -88,6 +88,60 @@ static void collectPitchEventsForMultiChannelNote(
   }
 }
 
+static void collectArpeggioEventsForMultiChannelNote(
+  DivSubSong* sub,
+  std::vector<SavedChannelForConvert>& saved,
+  int srcCh,
+  int startOrd,
+  int startRow,
+  int speed,
+  double hz,
+  std::vector<NeoGeoMultiChannelPitchEventForConvert>& pitchEvents,
+  std::vector<NeoGeoMultiChannelEventKeyForConvert>& consumedRows
+) {
+  if (sub==NULL || srcCh<0 || srcCh>=(int)saved.size()) return;
+  if (speed<1) speed=6;
+  if (hz<=0.0) hz=50.0;
+  double rowFrames=(double)speed*MOD_CONVERT_ADPCMA_RATE/hz;
+  int rowsElapsed=0;
+  short lastArpeggio=-1;
+
+  for (int ord=startOrd; ord<sub->ordersLen; ord++) {
+    int sourcePatIndex=saved[srcCh].orders[ord];
+    DivPattern* sourcePat=saved[srcCh].pat.getPattern(sourcePatIndex,false);
+    if (sourcePat==NULL) return;
+    int firstRow=(ord==startOrd)?startRow:0;
+    for (int row=firstRow; row<sub->patLen; row++) {
+      short sourceNote=sourcePat->newData[row][DIV_PAT_NOTE];
+      if (!(ord==startOrd && row==startRow) && (
+        (sourceNote>=0 && sourceNote<DIV_NOTE_NULL_PAT) ||
+        sourceNote==DIV_NOTE_OFF ||
+        sourceNote==DIV_NOTE_REL ||
+        sourceNote==DIV_MACRO_REL
+      )) {
+        return;
+      }
+
+      for (int fxCol=0; fxCol<saved[srcCh].effectCols && fxCol<DIV_MAX_EFFECTS; fxCol++) {
+        short fx=sourcePat->newData[row][DIV_PAT_FX(fxCol)];
+        short fxVal=sourcePat->newData[row][DIV_PAT_FXVAL(fxCol)];
+        if (fx==MOD_CONVERT_FX_ARPEGGIO && fxVal>0) {
+          if (!(ord==startOrd && row==startRow)) {
+            if (fxVal!=lastArpeggio) {
+              pitchEvents.push_back(NeoGeoMultiChannelPitchEventForConvert((int)round((double)rowsElapsed*rowFrames),fx,fxVal));
+              lastArpeggio=fxVal;
+            }
+            consumedRows.push_back(NeoGeoMultiChannelEventKeyForConvert(srcCh,ord,row));
+          } else {
+            lastArpeggio=fxVal;
+          }
+        }
+      }
+      rowsElapsed++;
+    }
+  }
+}
+
 bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
   if (e.song.version!=DIV_VERSION_MOD) {
     logE("Neo Geo multi-channel conversion currently expects an imported MOD file.");
@@ -130,10 +184,11 @@ bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
   int attenuatedSamples=0;
   int loopFittedSamples=0;
   int syntheticLoopStops=0;
-  std::set<NeoGeoMultiChannelEventKeyForConvert> bakedPitchRows;
 
   for (size_t si=0; si<e.song.subsong.size(); si++) {
     DivSubSong* sub=e.song.subsong[si];
+    std::set<NeoGeoMultiChannelEventKeyForConvert> bakedPitchRows;
+    std::set<NeoGeoMultiChannelEventKeyForConvert> bakedArpeggioRows;
     int initialSpeed=6;
     double initialHz=50.0;
     deriveInitialMODTimingForNullsound(sub,saved[si],oldChans,initialSpeed,initialHz);
@@ -176,9 +231,12 @@ bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
             int arpeggio=arpeggioForMultiChannelConvertNote(sourcePat,row,saved[si][srcCh].effectCols);
             std::vector<NeoGeoMultiChannelPitchEventForConvert> pitchEvents;
             std::vector<NeoGeoMultiChannelEventKeyForConvert> consumedPitchRows;
+            std::vector<NeoGeoMultiChannelEventKeyForConvert> consumedArpeggioRows;
+            collectArpeggioEventsForMultiChannelNote(sub,saved[si],srcCh,ord,row,initialSpeed,initialHz,pitchEvents,consumedArpeggioRows);
             if (bakePitchModulation) {
               collectPitchEventsForMultiChannelNote(sub,saved[si],srcCh,ord,row,initialSpeed,initialHz,pitchEvents,consumedPitchRows);
             }
+            std::sort(pitchEvents.begin(),pitchEvents.end());
             int targetADPCMFrames=0;
             int eventADPCMFrames=0;
             NeoGeoMultiChannelEventKeyForConvert eventKey(srcCh,ord,row);
@@ -186,8 +244,9 @@ bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
             if (eventDuration!=loopedDurations.eventFrames.end()) eventADPCMFrames=eventDuration->second;
             std::map<NeoGeoMultiChannelInstrumentKeyForConvert,int>::iterator maxDuration=loopedDurations.maxFrames.find(NeoGeoMultiChannelInstrumentKeyForConvert(sourceSample,sourceNote,0));
             if (maxDuration!=loopedDurations.maxFrames.end()) targetADPCMFrames=maxDuration->second;
-            bool newArpeggioVariant=arpeggio>0 && cachedIns.find(NeoGeoMultiChannelInstrumentKeyForConvert(sourceSample,sourceNote,targetADPCMFrames,sourceOffset,arpeggio))==cachedIns.end();
-            bool newPitchVariant=!pitchEvents.empty() && cachedIns.find(NeoGeoMultiChannelInstrumentKeyForConvert(sourceSample,sourceNote,targetADPCMFrames,sourceOffset,arpeggio,pitchEvents))==cachedIns.end();
+            bool newInstrumentVariant=cachedIns.find(NeoGeoMultiChannelInstrumentKeyForConvert(sourceSample,sourceNote,targetADPCMFrames,sourceOffset,arpeggio,pitchEvents))==cachedIns.end();
+            bool newArpeggioVariant=(arpeggio>0 || !consumedArpeggioRows.empty()) && newInstrumentVariant;
+            bool newPitchVariant=!consumedPitchRows.empty() && newInstrumentVariant;
             int destIns=addMultiChannelADPCMANoteInstrument(sourceSamples,sourceSample,sourceNote,targetADPCMFrames,sourceOffset,arpeggio,initialSpeed,initialHz,pitchEvents,cachedIns,attenuatedSamples,loopFittedSamples);
             if (destIns>=0) {
               destPat->newData[row][DIV_PAT_NOTE]=108;
@@ -199,6 +258,12 @@ bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
               if (arpeggio>0) {
                 bakedArpeggios++;
                 if (newArpeggioVariant) bakedArpeggioVariants++;
+              }
+              if (!consumedArpeggioRows.empty()) {
+                bakedArpeggios+=(int)consumedArpeggioRows.size();
+                for (std::vector<NeoGeoMultiChannelEventKeyForConvert>::const_iterator it=consumedArpeggioRows.begin(); it!=consumedArpeggioRows.end(); ++it) {
+                  bakedArpeggioRows.insert(*it);
+                }
               }
               if (!pitchEvents.empty()) {
                 bakedPitchEffects+=(int)consumedPitchRows.size();
@@ -263,6 +328,12 @@ bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation) {
               continue;
             }
             if (sourceFx==MOD_CONVERT_FX_ARPEGGIO && sourceFxVal>0 && sourceNote>=0 && sourceNote<DIV_NOTE_NULL_PAT) {
+              continue;
+            }
+            if (
+              sourceFx==MOD_CONVERT_FX_ARPEGGIO &&
+              bakedArpeggioRows.find(NeoGeoMultiChannelEventKeyForConvert(srcCh,ord,row))!=bakedArpeggioRows.end()
+            ) {
               continue;
             }
             if (

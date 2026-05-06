@@ -161,9 +161,9 @@ static bool renderPitchEventADPCMANote(
   }
   if (!dst->resize(outFrames)) return false;
 
-  const int arpNotes[3]={0,(arpeggio>>4)&15,arpeggio&15};
   const double tickFrames=adpcmARate/hz;
   double sourcePos=0.0;
+  short currentArpeggio=arpeggio;
   short vibrato=0;
   double vibratoPhase=0.0;
   double slideSemitoneOffset=0.0;
@@ -177,12 +177,15 @@ static bool renderPitchEventADPCMANote(
         slideSemitonesPerFrame=(double)MAX(0,(int)pitchEvents[eventIndex].fxVal)/(64.0*tickFrames);
       } else if (pitchEvents[eventIndex].fx==MOD_CONVERT_FX_PORTAMENTO_DOWN) {
         slideSemitonesPerFrame=-(double)MAX(0,(int)pitchEvents[eventIndex].fxVal)/(64.0*tickFrames);
+      } else if (pitchEvents[eventIndex].fx==MOD_CONVERT_FX_ARPEGGIO) {
+        currentArpeggio=pitchEvents[eventIndex].fxVal;
       }
       eventIndex++;
     }
 
     double semitoneOffset=0.0;
-    if (arpeggio>0) {
+    if (currentArpeggio>0) {
+      const int arpNotes[3]={0,(currentArpeggio>>4)&15,currentArpeggio&15};
       int tick=(tickFrames>0.0)?(int)floor((double)i/tickFrames):0;
       semitoneOffset+=(double)arpNotes[tick%3];
     }
