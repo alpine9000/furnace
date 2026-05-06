@@ -26,6 +26,7 @@ static const ModConvertEffectSupport multiChannelConvertEffectSupport[]={
   {MOD_CONVERT_FX_TONE_PORTAMENTO,MOD_CONVERT_FX_TONE_PORTAMENTO,false,true,false,false,"tone portamento"},
   {MOD_CONVERT_FX_VIBRATO,MOD_CONVERT_FX_VIBRATO,false,true,false,false,"vibrato"},
   {MOD_CONVERT_FX_VIBRATO_VOL_SLIDE,MOD_CONVERT_FX_VIBRATO_VOL_SLIDE,false,true,false,false,"vibrato volume slide"},
+  {MOD_CONVERT_FX_TREMOLO,MOD_CONVERT_FX_TREMOLO,false,false,false,false,"tremolo"},
   {MOD_CONVERT_FX_SAMPLE_OFFSET,MOD_CONVERT_FX_NONE,true,false,false,true,"sample offset"},
   {MOD_CONVERT_FX_VOLUME_SLIDE,MOD_CONVERT_FX_VOLUME_SLIDE,true,false,false,false,"volume slide"},
   {MOD_CONVERT_FX_ORDER_JUMP,MOD_CONVERT_FX_ORDER_JUMP,true,false,true,false,"order jump"},
@@ -35,7 +36,16 @@ static const ModConvertEffectSupport multiChannelConvertEffectSupport[]={
   {MOD_CONVERT_FX_SAMPLE_OFFSET_LOW,MOD_CONVERT_FX_NONE,true,false,false,true,"sample offset low"},
   {MOD_CONVERT_FX_SAMPLE_OFFSET_MID,MOD_CONVERT_FX_NONE,true,false,false,true,"sample offset mid"},
   {MOD_CONVERT_FX_SAMPLE_OFFSET_HIGH,MOD_CONVERT_FX_NONE,true,false,false,true,"sample offset high"},
+  {MOD_CONVERT_FX_ARPEGGIO_SPEED,MOD_CONVERT_FX_ARPEGGIO_SPEED,false,false,false,false,"arpeggio speed"},
+  {MOD_CONVERT_FX_VIBRATO_SHAPE,MOD_CONVERT_FX_VIBRATO_SHAPE,false,true,false,false,"vibrato shape"},
+  {MOD_CONVERT_FX_VIBRATO_RANGE,MOD_CONVERT_FX_VIBRATO_RANGE,false,true,false,false,"vibrato range"},
   {MOD_CONVERT_FX_FURNACE_BPM,MOD_CONVERT_FX_FURNACE_BPM,false,false,true,false,"BPM"},
+  {MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_UP,MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_UP,false,true,false,false,"single tick pitch slide up"},
+  {MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_DOWN,MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_DOWN,false,true,false,false,"single tick pitch slide down"},
+  {MOD_CONVERT_FX_FINE_VOLUME_SLIDE_UP,MOD_CONVERT_FX_FINE_VOLUME_SLIDE_UP,false,false,false,false,"fine volume slide up"},
+  {MOD_CONVERT_FX_FINE_VOLUME_SLIDE_DOWN,MOD_CONVERT_FX_FINE_VOLUME_SLIDE_DOWN,false,false,false,false,"fine volume slide down"},
+  {MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_UP,MOD_CONVERT_FX_NONE,true,false,false,true,"single tick volume slide up"},
+  {MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_DOWN,MOD_CONVERT_FX_NONE,true,false,false,true,"single tick volume slide down"},
   {MOD_CONVERT_FX_FAST_VOLUME_SLIDE,MOD_CONVERT_FX_VOLUME_SLIDE,true,false,false,false,"fast volume slide"},
   {MOD_CONVERT_FX_NOTE_CUT,MOD_CONVERT_FX_NOTE_CUT,true,false,true,false,"note cut"},
   {MOD_CONVERT_FX_NOTE_DELAY,MOD_CONVERT_FX_NOTE_DELAY,true,false,true,false,"note delay"}
@@ -95,6 +105,28 @@ bool modConvertEffectEndsOrder(short fx, short fxVal, int currentOrder, int& jum
   return false;
 }
 
+bool isNoOpMultiChannelConvertEffect(short fx, short fxVal) {
+  return fx==MOD_CONVERT_FX_NONE || (fx==MOD_CONVERT_FX_ARPEGGIO && fxVal<=0);
+}
+
+bool isUnsupportedEffectResetForMultiChannelConvert(short fx, short fxVal) {
+  if (fxVal>0) return false;
+  return fx==MOD_CONVERT_FX_PORTAMENTO_UP ||
+    fx==MOD_CONVERT_FX_PORTAMENTO_DOWN ||
+    fx==MOD_CONVERT_FX_TONE_PORTAMENTO ||
+    fx==MOD_CONVERT_FX_VIBRATO ||
+    fx==MOD_CONVERT_FX_VIBRATO_VOL_SLIDE ||
+    fx==MOD_CONVERT_FX_TREMOLO ||
+    fx==MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_UP ||
+    fx==MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_DOWN;
+}
+
+bool isRedundantFixedTempoEffectForMultiChannelConvert(short fx, short fxVal, double fixedHz) {
+  if (fx!=MOD_CONVERT_FX_FURNACE_BPM || fxVal<=0 || fixedHz<=0.0) return false;
+  double effectHz=(double)fxVal*2.0/5.0;
+  return fabs(effectHz-fixedHz)<0.001;
+}
+
 bool isMultiChannelConvertSampleOffsetEffect(short fx, short fxVal, int& offset) {
   if (fxVal<0) fxVal=0;
   if (fx==MOD_CONVERT_FX_SAMPLE_OFFSET && fxVal>0) {
@@ -123,6 +155,29 @@ int sampleOffsetForMultiChannelConvertNote(DivPattern* sourcePat, int row, int e
   return 0;
 }
 
+int arpeggioForMultiChannelConvertNote(DivPattern* sourcePat, int row, int effectCols) {
+  if (sourcePat==NULL || row<0) return 0;
+  for (int fxCol=0; fxCol<effectCols && fxCol<DIV_MAX_EFFECTS; fxCol++) {
+    short fx=sourcePat->newData[row][DIV_PAT_FX(fxCol)];
+    short fxVal=sourcePat->newData[row][DIV_PAT_FXVAL(fxCol)];
+    if (fx==MOD_CONVERT_FX_ARPEGGIO && fxVal>0) return fxVal&0xff;
+  }
+  return 0;
+}
+
+bool applySingleTickVolumeSlideForMultiChannelConvert(short fx, short fxVal, int& volume) {
+  if (fxVal<0) fxVal=0;
+  if (fx==MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_UP) {
+    volume=CLAMP(volume+(int)fxVal,0,64);
+    return true;
+  }
+  if (fx==MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_DOWN) {
+    volume=CLAMP(volume-(int)fxVal,0,64);
+    return true;
+  }
+  return false;
+}
+
 bool copySupportedMultiChannelConvertEffect(short fx, short fxVal, short& outFx, short& outFxVal) {
   const ModConvertEffectSupport* support=multiChannelConvertEffectSupportFor(fx);
   if (support==NULL || !support->supportedByNullsound || support->bakedIntoSample) return false;
@@ -131,10 +186,12 @@ bool copySupportedMultiChannelConvertEffect(short fx, short fxVal, short& outFx,
   return true;
 }
 
-void recordUnsupportedMultiChannelConvertEffect(short fx, ModConverterEffectStats& stats) {
+void recordUnsupportedMultiChannelConvertEffect(short fx, short fxVal, ModConverterEffectStats& stats) {
   if (fx==MOD_CONVERT_FX_NONE) return;
   if (fx==MOD_CONVERT_FX_FURNACE_BPM) {
     stats.unsupportedTempoEffects++;
   }
+  stats.unsupportedByFx[fx]++;
+  stats.unsupportedByFxVal[(((int)fx)&0xffff)<<16 | (((int)fxVal)&0xffff)]++;
   stats.unsupportedEffects++;
 }

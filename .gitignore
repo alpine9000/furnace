@@ -49,3 +49,4 @@ src/asm/spc700/furnace.spc
 src/asm/spc700/furnace.sym
 *.fur
 *.mod
+convert.sh

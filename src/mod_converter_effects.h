@@ -29,6 +29,7 @@ static const short MOD_CONVERT_FX_PORTAMENTO_DOWN=0x02;
 static const short MOD_CONVERT_FX_TONE_PORTAMENTO=0x03;
 static const short MOD_CONVERT_FX_VIBRATO=0x04;
 static const short MOD_CONVERT_FX_VIBRATO_VOL_SLIDE=0x06;
+static const short MOD_CONVERT_FX_TREMOLO=0x07;
 static const short MOD_CONVERT_FX_SAMPLE_OFFSET=0x09;
 static const short MOD_CONVERT_FX_VOLUME_SLIDE=0x0a;
 static const short MOD_CONVERT_FX_ORDER_JUMP=0x0b;
@@ -38,7 +39,16 @@ static const short MOD_CONVERT_FX_SPEED=0x0f;
 static const short MOD_CONVERT_FX_SAMPLE_OFFSET_LOW=0x90;
 static const short MOD_CONVERT_FX_SAMPLE_OFFSET_MID=0x91;
 static const short MOD_CONVERT_FX_SAMPLE_OFFSET_HIGH=0x92;
+static const short MOD_CONVERT_FX_ARPEGGIO_SPEED=0xe0;
+static const short MOD_CONVERT_FX_VIBRATO_SHAPE=0xe3;
+static const short MOD_CONVERT_FX_VIBRATO_RANGE=0xe4;
 static const short MOD_CONVERT_FX_FURNACE_BPM=0xf0;
+static const short MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_UP=0xf1;
+static const short MOD_CONVERT_FX_SINGLE_PITCH_SLIDE_DOWN=0xf2;
+static const short MOD_CONVERT_FX_FINE_VOLUME_SLIDE_UP=0xf3;
+static const short MOD_CONVERT_FX_FINE_VOLUME_SLIDE_DOWN=0xf4;
+static const short MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_UP=0xf8;
+static const short MOD_CONVERT_FX_SINGLE_VOLUME_SLIDE_DOWN=0xf9;
 static const short MOD_CONVERT_FX_FAST_VOLUME_SLIDE=0xfa;
 static const short MOD_CONVERT_FX_NOTE_CUT=0xec;
 static const short MOD_CONVERT_FX_NOTE_DELAY=0xed;
@@ -48,10 +58,14 @@ static const short MOD_CONVERT_PROTRACKER_MAX_SPEED=0x20;
 struct ModConverterEffectStats {
   int unsupportedEffects;
   int unsupportedTempoEffects;
+  int bakedSingleVolumeSlides;
+  std::map<short,int> unsupportedByFx;
+  std::map<int,int> unsupportedByFxVal;
 
   ModConverterEffectStats():
     unsupportedEffects(0),
-    unsupportedTempoEffects(0) {
+    unsupportedTempoEffects(0),
+    bakedSingleVolumeSlides(0) {
   }
 };
 
@@ -77,7 +91,12 @@ struct ModConverterTimingState {
 const ModConvertEffectSupport* multiChannelConvertEffectSupportFor(short fx);
 const ModConvertEffectSupport* multiChannelConvertEffectSupportTable(int& count);
 bool modConvertEffectEndsOrder(short fx, short fxVal, int currentOrder, int& jumpTarget, int& jumpRow);
+bool isNoOpMultiChannelConvertEffect(short fx, short fxVal);
+bool isUnsupportedEffectResetForMultiChannelConvert(short fx, short fxVal);
+bool isRedundantFixedTempoEffectForMultiChannelConvert(short fx, short fxVal, double fixedHz);
 bool isMultiChannelConvertSampleOffsetEffect(short fx, short fxVal, int& offset);
 int sampleOffsetForMultiChannelConvertNote(DivPattern* sourcePat, int row, int effectCols);
+int arpeggioForMultiChannelConvertNote(DivPattern* sourcePat, int row, int effectCols);
+bool applySingleTickVolumeSlideForMultiChannelConvert(short fx, short fxVal, int& volume);
 bool copySupportedMultiChannelConvertEffect(short fx, short fxVal, short& outFx, short& outFxVal);
-void recordUnsupportedMultiChannelConvertEffect(short fx, ModConverterEffectStats& stats);
+void recordUnsupportedMultiChannelConvertEffect(short fx, short fxVal, ModConverterEffectStats& stats);

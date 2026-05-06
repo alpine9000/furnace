@@ -20,4 +20,4 @@
 #pragma once
 
 bool convertLoadedModToNeoGeoSingleChannel();
-bool convertLoadedModToNeoGeoMultiChannel();
+bool convertLoadedModToNeoGeoMultiChannel(bool bakePitchModulation);

@@ -28,12 +28,12 @@ extern DivEngine e;
 static String convertTarget;
 
 const char* modConverterTargetsHelp() {
-  return "neogeo-single-channel|neogeo-multi-channel";
+  return "neogeo-single-channel|neogeo-multi-channel|neogeo-multi-channel-pitch";
 }
 
 TAParamResult pConvert(String val) {
-  if (val!="neogeo-single-channel" && val!="neogeo-multi-channel") {
-    logE("invalid conversion target! valid values are: neogeo-single-channel, neogeo-multi-channel.");
+  if (val!="neogeo-single-channel" && val!="neogeo-multi-channel" && val!="neogeo-multi-channel-pitch") {
+    logE("invalid conversion target! valid values are: neogeo-single-channel, neogeo-multi-channel, neogeo-multi-channel-pitch.");
     return TA_PARAM_ERROR;
   }
   convertTarget=val;
@@ -47,7 +47,10 @@ bool modConverterHasTarget() {
 
 bool convertLoadedModForRequestedTarget() {
   if (convertTarget=="neogeo-multi-channel") {
-    return convertLoadedModToNeoGeoMultiChannel();
+    return convertLoadedModToNeoGeoMultiChannel(false);
+  }
+  if (convertTarget=="neogeo-multi-channel-pitch") {
+    return convertLoadedModToNeoGeoMultiChannel(true);
   }
   if (convertTarget=="neogeo-single-channel") {
     return convertLoadedModToNeoGeoSingleChannel();

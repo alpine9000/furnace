@@ -23,24 +23,55 @@
 #include "mod_converter_common.h"
 #include "engine/engine.h"
 
+struct NeoGeoMultiChannelPitchEventForConvert {
+  int frame;
+  short fx;
+  short fxVal;
+
+  NeoGeoMultiChannelPitchEventForConvert(int f=0, short x=-1, short v=-1):
+    frame(f),
+    fx(x),
+    fxVal(v) {
+  }
+
+  bool operator<(const NeoGeoMultiChannelPitchEventForConvert& other) const {
+    if (frame!=other.frame) return frame<other.frame;
+    if (fx!=other.fx) return fx<other.fx;
+    return fxVal<other.fxVal;
+  }
+};
+
 struct NeoGeoMultiChannelInstrumentKeyForConvert {
   int sample;
   int note;
   int frames;
   int offset;
+  int arpeggio;
+  std::vector<NeoGeoMultiChannelPitchEventForConvert> pitchEvents;
 
-  NeoGeoMultiChannelInstrumentKeyForConvert(int s=0, int n=0, int f=0, int o=0):
+  NeoGeoMultiChannelInstrumentKeyForConvert(
+    int s=0,
+    int n=0,
+    int f=0,
+    int o=0,
+    int a=0,
+    const std::vector<NeoGeoMultiChannelPitchEventForConvert>& p=std::vector<NeoGeoMultiChannelPitchEventForConvert>()
+  ):
     sample(s),
     note(n),
     frames(f),
-    offset(o) {
+    offset(o),
+    arpeggio(a),
+    pitchEvents(p) {
   }
 
   bool operator<(const NeoGeoMultiChannelInstrumentKeyForConvert& other) const {
     if (sample!=other.sample) return sample<other.sample;
     if (note!=other.note) return note<other.note;
     if (frames!=other.frames) return frames<other.frames;
-    return offset<other.offset;
+    if (offset!=other.offset) return offset<other.offset;
+    if (arpeggio!=other.arpeggio) return arpeggio<other.arpeggio;
+    return pitchEvents<other.pitchEvents;
   }
 };
 
@@ -75,6 +106,10 @@ int addMultiChannelADPCMANoteInstrument(
   int note,
   int targetADPCMFrames,
   int sourceOffset,
+  int arpeggio,
+  int speed,
+  double hz,
+  const std::vector<NeoGeoMultiChannelPitchEventForConvert>& pitchEvents,
   std::map<NeoGeoMultiChannelInstrumentKeyForConvert,int>& cachedIns,
   int& attenuatedSamples,
   int& loopFittedSamples
